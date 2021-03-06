@@ -1,0 +1,406 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: template for Project X
+
+Metadata:
+  AWS::CloudFormation::Interface:
+
+Parameters:
+  VPCCIDR:
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/([0-9]|[1-2][0-9]|3[0-2]))$
+    ConstraintDescription: Must be a valid IP range in x.x.x.x/x notation
+    Default: 10.0.0.0/16
+    Description: CIDR Block for the VPC
+    Type: String
+  PublicSubnet1CIDR:
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/([0-9]|[1-2][0-9]|3[0-2]))$
+    ConstraintDescription: Must be a valid IP range in x.x.x.x/x notation
+    Default: 10.0.1.0/24
+    Description: CIDR Block for the public DMZ subnet 1 located in Availability Zone 1
+    Type: String
+  PrivateSubnet1CIDR:
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/([0-9]|[1-2][0-9]|3[0-2]))$
+    ConstraintDescription: Must be a valid IP range in x.x.x.x/x notation
+    Default: 10.0.10.0/24
+    Description: CIDR block for private subnet 1 located in Availability Zone 1
+    Type: String
+  KeyPairName:
+    Description: Amazon EC2 Key Pair
+    Type: "AWS::EC2::KeyPair::KeyName"
+  PartnerCert:
+    Description: Agile Partner SSL Certificate ARN
+    Type: String
+    ConstraintDescription: must be a valid Certificate ARN
+  ServerInstanceType:
+    AllowedValues:
+    - t2.micro
+    - t2.small
+    - t2.medium
+    - t2.large
+    - m4.large
+    - m4.xlarge
+    - m4.2xlarge
+    - m4.4xlarge
+    - m4.10xlarge
+    - m3.medium
+    - m3.large
+    - m3.xlarge
+    - m3.2xlarge
+    - c4.large
+    - c4.xlarge
+    - c4.2xlarge
+    - c4.4xlarge
+    - c4.8xlarge
+    - c3.large
+    - c3.xlarge
+    - c3.2xlarge
+    - c3.4xlarge
+    - c3.8xlarge
+    - r3.large
+    - r3.xlarge
+    - r3.2xlarge
+    - r3.4xlarge
+    - r3.8xlarge
+    - i2.xlarge
+    - i2.2xlarge
+    - i2.4xlarge
+    - i2.8xlarge
+    ConstraintDescription: Choose an instance type.
+    Default: t2.micro
+    Description: App node node instance type
+    Type: String
+
+  EnvironmentType:
+      Description: The environment type
+      Type: String
+      Default: dev
+      AllowedValues:
+        - prod
+        - dev
+      ConstraintDescription: must be a prod or dev
+
+  Mappings:
+    RegionMap:
+        eu-west-1:
+          dev: ami-0172c7e8739ccb954
+
+Resources:
+  myVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VPCCIDR
+      EnableDnsSupport: true
+      EnableDnsHostnames: True
+      InstanceTenancy: "default"
+      Tags:
+        - Key: Name
+          Value: "Project X"
+
+  IGW:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: "Project X"
+
+  EIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  NatGW:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId:
+        Fn::GetAtt:
+          - EIP
+          - AllocationId
+      SubnetId: !Ref VPCPublicSubnet1
+      Tags:
+        - Key: Name
+          Value: "Project X"
+
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref IGW
+      VpcId: !Ref myVPC
+
+  VPCPublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      MapPublicIpOnLaunch: True
+      CidrBlock: !Ref PublicSubnet1CIDR
+      AvailabilityZone:
+        Fn::Select:
+          - 0
+          - Fn::GetAZs: ""
+      Tags:
+        - Key: Name
+          Value: ProjectXPub1
+      VpcId: !Ref myVPC
+
+  VPCPrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Ref PrivateSubnet1CIDR
+      AvailabilityZone:
+        Fn::Select:
+          - 0
+          - Fn::GetAZs: ""
+      Tags:
+        - Key: Name
+          Value: ProjectXPriv1
+      VpcId: !Ref myVPC
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref myVPC
+      Tags:
+        - Key: Name
+          Value: ProjectXPubRT
+
+  PublicDefaultRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: "0.0.0.0/0"
+      GatewayId: !Ref IGW
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicRouteSubnetAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref VPCPublicSubnet1
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref myVPC
+      Tags:
+        - Key: Name
+          Value: ProjectXPrivRT
+
+  PrivateDefaultRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: "0.0.0.0/0"
+      NatGatewayId: !Ref NatGW
+      RouteTableId: !Ref PrivateRouteTable
+
+  PrivateRouteSubnetAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref VPCPrivateSubnet1
+
+
+
+  PrivateHostSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      VpcId: !Ref myVPC
+      GroupDescription: Enable SSH access via port 22
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '80'
+          ToPort: '80'
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+        - IpProtocol: tcp
+          FromPort: '443'
+          ToPort: '443'
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+      Tags:
+        - Key: Name
+          Value: ProjectXPrivateHostSG
+
+  DeployAppLaunchConfig:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      ImageId:
+        Fn::FindInMap:
+          - RegionMap
+          - Ref: AWS::Region
+          - Ref: EnvironmentType
+      InstanceType: !Ref ServerInstanceType
+      KeyName: !Ref KeyPairName
+      SecurityGroups:
+        - !Ref PrivateHostSecurityGroup
+      UserData:
+        Fn::Base64:
+          Fn::Sub: |
+            #!/bin/bash -xe
+            # Add EPEL repository
+            yum install epel-release
+            # Install Nginx
+            yum install nginx
+            # Enable and start service
+            systemctl enable nginx
+            systemctl start nginx
+
+  DeployAppASG:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      VPCZoneIdentifier:
+        - !Ref PrivateSubnet1Id
+      DesiredCapacity: 1
+      LaunchConfigurationName: !Ref DeployAppLaunchConfig
+      TargetGroupARNs:
+        - !Ref WebAppTargetGroup
+        - !Ref WebAppSecureTargetGroup
+      MaxSize: 2
+      MinSize: 1
+      Tags:
+          - Key: Name
+            Value: ProjectXASG
+            PropagateAtLaunch: True
+    UpdatePolicy:
+      AutoScalingReplacingUpdate:
+        WillReplace: True
+
+  AppScaleUpPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AdjustmentType: ChangeInCapacity
+      AutoScalingGroupName: !Ref DeployAppASG
+      Cooldown: '60'
+      ScalingAdjustment: 1
+
+  AppScaleDownPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AdjustmentType: ChangeInCapacity
+      AutoScalingGroupName: !Ref DeployAppASG
+      Cooldown: '300'
+      ScalingAdjustment: -1
+
+  CPUAlarmHigh:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Scale-up if CPU > 80% for 5 minutes
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 80
+      AlarmActions: [!Ref AppScaleUpPolicy]
+      Dimensions:
+      - Name: AutoScalingGroupName
+        Value: !Ref DeployAppASG
+      ComparisonOperator: GreaterThanThreshold
+
+  CPUAlarmLow:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Scale-down if CPU < 60% for 5 minutes
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 80
+      AlarmActions: [!Ref AppScaleDownPolicy]
+      Dimensions:
+      - Name: AutoScalingGroupName
+        Value: !Ref DeployAppASG
+      ComparisonOperator: LessThanThreshold
+
+  ALBSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      VpcId: !Ref myVPC
+      GroupDescription: Enable HTTP/HTTPS access
+      SecurityGroupIngress:
+        - IpProtocol: 'tcp'
+          FromPort: '80'
+          ToPort: '80'
+          CidrIp: !Ref ALBAccessCIDR
+        - IpProtocol: 'tcp'
+          FromPort: '443'
+          ToPort: '443'
+          CidrIp: !Ref ALBAccessCIDR
+      Tags:
+        - Key: Name
+          Value: ProjectXALBSG
+
+  WebAppALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      IpAddressType: ipv4
+      Scheme: internet-facing
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+      Subnets:
+        - !Ref PublicSubnet1Id
+      Tags:
+        - Key: Name
+          Value: ProjectXALB
+      Type: application
+
+  Listener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn:
+            Ref: WebAppTargetGroup
+      LoadBalancerArn:
+        Ref: WebAppALB
+      Port: '80'
+      Protocol: HTTP
+
+  SecureListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn:
+            Ref: WebAppSecureTargetGroup
+      LoadBalancerArn:
+        Ref: WebAppALB
+      Port: '443'
+      Protocol: HTTPS
+      Certificates:
+        - CertificateArn: !Ref AgilePartnerCert
+
+  WebAppTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Port: '80'
+      Protocol: 'HTTP'
+      VpcId: !Ref myVPC
+      HealthCheckIntervalSeconds: 30
+      HealthCheckPath: /
+      HealthCheckPort: 80
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      Tags:
+        - Key: Name
+          Value: ProjectXWebAppTG
+
+  WebAppSecureTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Port: '443'
+      Protocol: 'HTTPS'
+      VpcId: !Ref myVPC
+
+      HealthCheckIntervalSeconds: 30
+      HealthCheckPath: /
+      HealthCheckPort: 443
+      HealthCheckProtocol: HTTPS
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      Tags:
+        - Key: Name
+          Value: ProjectXSecureTG
+Outputs:
+  ProjectXALBDNS:
+    Description: Web App ALB DNS Name
+    Value:
+      Fn::Join:
+        - ''
+        - - "http://"
+          - Fn::GetAtt: WebAppALB.DNSName
